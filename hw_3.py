@@ -1,15 +1,17 @@
 import time
 import requests
 from bs4 import BeautifulSoup as bs
-import json
+from pymongo import MongoClient
 
 
 class HH_scraper:
-    def __init__(self, start_url, headers, params):
+    def __init__(self, start_url, headers, params, client):
         self.start_url = start_url
         self.start_headers = headers
         self.start_params = params
-        self.info_vacancy = []
+        self.vacancy_info = []
+        self.db = client['hh_jobs_db']
+        self.jobs = self.db.jobs
 
 
     def get_html_string(self, url, headers='', params=''):
@@ -40,8 +42,9 @@ class HH_scraper:
             self.get_info_from_element(vacancy_list)
             try:
                 next_page = self.start_url + soup.find('a', attrs={'data-qa': 'pager-next'}).attrs["href"]
-            except Exception as e:
+            except Exception:
                 next_page = None
+        self.save_to_mongo()
 
     def get_info_from_element(self, vacancy_list):
         for vacancy in vacancy_list:
@@ -52,7 +55,7 @@ class HH_scraper:
             vacancy_data['Ссылка на объявление'] = vacancy_link
             vacancy_data['Сайт'] = self.start_url
             self.get_salary(vacancy_data, vacancy)
-            self.info_vacancy.append(vacancy_data)
+            self.vacancy_info.append(vacancy_data)
 
     def get_salary(self, vacancy_data, vacancy):
         try:
@@ -69,12 +72,11 @@ class HH_scraper:
                 vacancy_data['Максимальная зарплата'] = float(vacancy_salary[0])
                 vacancy_data['Валюта'] = vacancy_salary[-1]
 
-        except Exception as e:
+        except Exception:
             vacancy_data['Зарплата'] = None
 
-    def save_vacancies_info(self):
-        with open("hh.ru_vacancies.json", 'w', encoding="utf-8") as file:
-            json.dump(self.info_vacancy, file, indent=2, ensure_ascii=False)
+    def save_to_mongo(self):
+        self.jobs.insert_many(self.vacancy_info)
 
 
 if __name__ == '__main__':
@@ -88,7 +90,8 @@ if __name__ == '__main__':
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.77 Safari/537.36"}
 
-    scraper_hh = HH_scraper(main_link_hh, headers, params_main_hh)
+    client = MongoClient('localhost', 27017)
+
+    scraper_hh = HH_scraper(main_link_hh, headers, params_main_hh, client)
     scraper_hh.run()
-    scraper_hh.save_vacancies_info()
-    print('\nНайденные вакансии сохранены в файл hh.ru_vacancies.json')
+    print('\nНайденные вакансии сохранены в MongoDB Compass, в коллекции hh_jobs_db, документ jobs')
